@@ -11,17 +11,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check active sessions and subscribe to auth changes
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
-      setUser(session?.user ?? null)
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+        setUser({ ...session.user, profile: profile || undefined })
+      } else {
+        setUser(null)
+      }
       setLoading(false)
     })
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session)
-      setUser(session?.user ?? null)
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+        setUser({ ...session.user, profile: profile || undefined })
+      } else {
+        setUser(null)
+      }
       setLoading(false)
     })
 
@@ -48,15 +66,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async ({ email, password, full_name }: SignUpParams) => {
     try {
       setLoading(true)
-      const { error } = await supabase.auth.signUp({
+      const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name },
         },
       })
-      if (error) throw error
-      
+      if (signUpError) throw signUpError
+
+      // O trigger handle_new_user criará o perfil automaticamente
       toast.success('Conta criada com sucesso! Verifique seu e-mail.')
     } catch (error) {
       setError(error as Error)

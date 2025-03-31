@@ -2,7 +2,6 @@ import { type User, type Session } from '@supabase/supabase-js'
 
 export interface Profile {
   id: string
-  email: string
   username: string | null
   full_name: string | null
   bio: string | null
