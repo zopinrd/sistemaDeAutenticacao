@@ -76,7 +76,6 @@ src/
 -- Criar a tabela de perfis
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  email text not null,
   username text unique,
   full_name text,
   bio text,
@@ -87,8 +86,18 @@ create table public.profiles (
   updated_at timestamp with time zone default timezone('utc', now())
 );
 
--- Trigger para atualizar o campo updated_at
-create or replace function public.set_updated_at()
+-- Comentários para documentação
+comment on table public.profiles is 'Tabela de perfis personalizados sincronizados com auth.users';
+comment on column public.profiles.id is 'UUID do usuário (igual ao auth.users.id)';
+comment on column public.profiles.username is 'Nome de usuário público e único';
+comment on column public.profiles.full_name is 'Nome completo do usuário';
+comment on column public.profiles.bio is 'Biografia curta';
+comment on column public.profiles.website is 'Website pessoal ou rede social';
+comment on column public.profiles.avatar_url is 'URL do avatar';
+comment on column public.profiles.location is 'Localização';
+
+-- Trigger para updated_at
+create or replace function public.handle_updated_at()
 returns trigger as $$
 begin
   new.updated_at = now();
@@ -96,45 +105,48 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger set_profile_updated_at
-before update on public.profiles
-for each row
-execute procedure public.set_updated_at();
+create trigger handle_profiles_updated_at
+  before update on public.profiles
+  for each row
+  execute function handle_updated_at();
 
--- Trigger para criar perfil automaticamente
+-- Trigger para criação automática de perfil
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, email, full_name, avatar_url)
+  insert into public.profiles (id, full_name)
   values (
     new.id,
-    new.email,
-    new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'avatar_url'
+    coalesce(new.raw_user_meta_data->>'full_name', '')
   );
   return new;
 end;
 $$ language plpgsql security definer;
 
 create trigger on_auth_user_created
-after insert on auth.users
-for each row
-execute procedure public.handle_new_user();
+  after insert on auth.users
+  for each row
+  execute procedure public.handle_new_user();
 
--- Habilitar RLS e criar políticas
+-- Habilitar RLS
 alter table public.profiles enable row level security;
 
-create policy "Can view own profile"
-on public.profiles for select
-using (auth.uid() = id);
+-- Políticas de acesso
+create policy "Public profiles are viewable by everyone"
+  on profiles for select
+  using ( true );
 
-create policy "Can update own profile"
-on public.profiles for update
-using (auth.uid() = id);
+create policy "Users can update own profile"
+  on profiles for update
+  using ( auth.uid() = id );
 
-create policy "Can insert own profile"
-on public.profiles for insert
-with check (auth.uid() = id);
+-- Configuração do storage
+insert into storage.buckets (id, name)
+values ('avatars', 'avatars');
+
+create policy "Avatar images are publicly accessible"
+  on storage.objects for select
+  using ( bucket_id = 'avatars' );
 ```
 
 3. Configure as seguintes opções no Supabase:
